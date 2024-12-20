@@ -5,7 +5,7 @@ import Data.Char
 import qualified Data.Map as Map
 import Parser
 import System.Environment (getArgs)
-import System.IO (Handle, IOMode (ReadMode, WriteMode), hGetContents, hPutStr, hPutStrLn, openFile, stdin, stdout, stderr)
+import System.IO (Handle, IOMode (ReadMode, WriteMode), hGetContents, hPutStr, hPutStrLn, openFile, stderr, stdin, stdout)
 import System.Random (randomRIO)
 
 data Expr = ExprNum Int | ExprString String | ExprFunc (String, [Expr]) | ExprBool Bool
@@ -39,11 +39,14 @@ ifFunc [ExprBool value, left, right] = return $ Just $ if value then left else r
 ifFunc _ = return Nothing
 
 funcMap :: Map.Map String Func
-funcMap = Map.fromList [("add", add), 
-  ("roll", roll), 
-  ("lessThan", lessThan), 
-  ("greaterThan", greaterThan), 
-  ("if", ifFunc)]
+funcMap =
+  Map.fromList
+    [ ("add", add),
+      ("roll", roll),
+      ("lessThan", lessThan),
+      ("greaterThan", greaterThan),
+      ("if", ifFunc)
+    ]
 
 -- parser
 
@@ -88,7 +91,7 @@ evaluate x = return $ Just x
 toString :: Expr -> IO String
 toString (ExprNum x) = return $ show x
 toString (ExprString str) = return str
-toString (ExprBool value) = return $ if value then "true" else "false" 
+toString (ExprBool value) = return $ if value then "true" else "false"
 toString expr = do
   result <- evaluate expr
   case result of
@@ -133,10 +136,10 @@ main :: IO ()
 main = do
   args <- getArgs
   options <- parseArgs args defaultOptions
-  case options of 
+  case options of
     Just opts -> do
       contents <- hGetContents (optInput opts)
       result <- replaceExprs contents ""
       hPutStr (optOutput opts) result
-    Nothing -> do 
+    Nothing -> do
       hPutStrLn stderr "Usage: tome [-i <input>] [-o <output>]"
