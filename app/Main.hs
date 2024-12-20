@@ -5,7 +5,7 @@ import Data.Char
 import qualified Data.Map as Map
 import Parser
 import System.Environment (getArgs)
-import System.IO (Handle, IOMode(ReadMode, WriteMode), stdin, stdout, openFile, hGetContents, hPutStr)
+import System.IO (Handle, IOMode (ReadMode, WriteMode), hGetContents, hPutStr, openFile, stdin, stdout)
 import System.Random (randomRIO)
 
 data Expr = ExprNum Int | ExprString String | ExprFunc (String, [Expr])
@@ -89,19 +89,21 @@ data Options = Options
   deriving (Show)
 
 defaultOptions :: Options
-defaultOptions = Options 
-  { optInput = stdin,
-    optOutput = stdout}
+defaultOptions =
+  Options
+    { optInput = stdin,
+      optOutput = stdout
+    }
 
 parseArgs :: [String] -> Options -> IO Options
 parseArgs [] opts = return opts
-parseArgs ("-i":file:xs) opts = do
+parseArgs ("-i" : file : xs) opts = do
   handle <- openFile file ReadMode
   parseArgs xs opts {optInput = handle}
-parseArgs("-o":file:xs) opts = do
+parseArgs ("-o" : file : xs) opts = do
   handle <- openFile file WriteMode
   parseArgs xs opts {optOutput = handle}
-parseArgs (_:_) _ = error "print the usage here"
+parseArgs (_ : _) _ = error "print the usage here"
 
 main :: IO ()
 main = do
