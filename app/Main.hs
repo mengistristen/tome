@@ -5,10 +5,10 @@ import Data.Char
 import qualified Data.Map as Map
 import Parser
 import System.Environment (getArgs)
-import System.IO (Handle, IOMode (ReadMode, WriteMode), hGetContents, hPutStr, openFile, stdin, stdout)
+import System.IO (Handle, IOMode (ReadMode, WriteMode), hGetContents, hPutStr, hPutStrLn, openFile, stdin, stdout, stderr)
 import System.Random (randomRIO)
 
-data Expr = ExprNum Int | ExprString String | ExprFunc (String, [Expr])
+data Expr = ExprNum Int | ExprString String | ExprFunc (String, [Expr]) | ExprBool Bool
   deriving (Show)
 
 type Func = [Expr] -> IO (Maybe Expr)
@@ -26,8 +26,24 @@ roll [ExprNum sides, ExprNum modifier] = do
 roll [ExprNum sides] = roll [ExprNum sides, ExprNum 0]
 roll _ = return Nothing
 
+lessThan :: Func
+lessThan [ExprNum left, ExprNum right] = return $ Just $ ExprBool (left < right)
+lessThan _ = return Nothing
+
+greaterThan :: Func
+greaterThan [ExprNum left, ExprNum right] = return $ Just $ ExprBool (left > right)
+greaterThan _ = return Nothing
+
+ifFunc :: Func
+ifFunc [ExprBool value, left, right] = return $ Just $ if value then left else right
+ifFunc _ = return Nothing
+
 funcMap :: Map.Map String Func
-funcMap = Map.fromList [("add", add), ("roll", roll)]
+funcMap = Map.fromList [("add", add), 
+  ("roll", roll), 
+  ("lessThan", lessThan), 
+  ("greaterThan", greaterThan), 
+  ("if", ifFunc)]
 
 -- parser
 
@@ -42,13 +58,20 @@ exprStringP = ExprString <$> stringLiteral
 exprFuncP :: Parser Expr
 exprFuncP = charP '(' *> inner <* charP ')'
   where
-    inner = (\name _ args -> ExprFunc (name, args)) <$> spanP isAlpha <*> charP ' ' <*> sepBy (charP ' ') exprP
+    inner = (\name _ args -> ExprFunc (name, args)) <$> spanP isAlpha <*> ws <*> sepBy ws exprP
+
+exprBoolP :: Parser Expr
+exprBoolP = f <$> (stringP "true" <|> stringP "false")
+  where
+    f "true" = ExprBool True
+    f "false" = ExprBool False
+    f _ = undefined
 
 exprP :: Parser Expr
-exprP = exprNumP <|> exprStringP <|> exprFuncP
+exprP = exprNumP <|> exprStringP <|> exprFuncP <|> exprBoolP
 
 wrappedExprP :: Parser Expr
-wrappedExprP = charP '{' *> exprP <* charP '}'
+wrappedExprP = charP '{' *> ws *> exprP <* ws <* charP '}'
 
 -- expression handling
 
@@ -65,6 +88,7 @@ evaluate x = return $ Just x
 toString :: Expr -> IO String
 toString (ExprNum x) = return $ show x
 toString (ExprString str) = return str
+toString (ExprBool value) = return $ if value then "true" else "false" 
 toString expr = do
   result <- evaluate expr
   case result of
@@ -95,20 +119,24 @@ defaultOptions =
       optOutput = stdout
     }
 
-parseArgs :: [String] -> Options -> IO Options
-parseArgs [] opts = return opts
+parseArgs :: [String] -> Options -> IO (Maybe Options)
+parseArgs [] opts = return $ Just opts
 parseArgs ("-i" : file : xs) opts = do
   handle <- openFile file ReadMode
   parseArgs xs opts {optInput = handle}
 parseArgs ("-o" : file : xs) opts = do
   handle <- openFile file WriteMode
   parseArgs xs opts {optOutput = handle}
-parseArgs (_ : _) _ = error "print the usage here"
+parseArgs (_ : _) _ = return Nothing
 
 main :: IO ()
 main = do
   args <- getArgs
   options <- parseArgs args defaultOptions
-  contents <- hGetContents (optInput options)
-  result <- replaceExprs contents ""
-  hPutStr (optOutput options) result
+  case options of 
+    Just opts -> do
+      contents <- hGetContents (optInput opts)
+      result <- replaceExprs contents ""
+      hPutStr (optOutput opts) result
+    Nothing -> do 
+      hPutStrLn stderr "Usage: tome [-i <input>] [-o <output>]"
