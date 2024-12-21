@@ -2,6 +2,7 @@ module Main where
 
 import Control.Applicative
 import Data.Char
+import Data.Monoid
 import qualified Data.Map as Map
 import Parser
 import System.Environment (getArgs)
@@ -41,11 +42,11 @@ ifFunc _ = return Nothing
 funcMap :: Map.Map String Func
 funcMap =
   Map.fromList
-    [ ("add", add),
-      ("roll", roll),
-      ("lessThan", lessThan),
-      ("greaterThan", greaterThan),
-      ("if", ifFunc)
+    [ ("+", add),
+      ("<", lessThan),
+      (">", greaterThan),
+      ("if", ifFunc),
+      ("roll", roll)
     ]
 
 -- parser
@@ -61,7 +62,8 @@ exprStringP = ExprString <$> stringLiteral
 exprFuncP :: Parser Expr
 exprFuncP = charP '(' *> inner <* charP ')'
   where
-    inner = (\name _ args -> ExprFunc (name, args)) <$> spanP isAlpha <*> ws <*> sepBy ws exprP
+    isValid = getAny . foldMap (Any .) [isAlpha, (`elem` "+-<>?")]
+    inner = (\name _ args -> ExprFunc (name, args)) <$> spanP isValid <*> ws <*> sepBy ws exprP
 
 exprBoolP :: Parser Expr
 exprBoolP = f <$> (stringP "true" <|> stringP "false")
@@ -142,4 +144,4 @@ main = do
       result <- replaceExprs contents ""
       hPutStr (optOutput opts) result
     Nothing -> do
-      hPutStrLn stderr "Usage: tome [-i <input>] [-o <output>]"
+      hPutStrLn stderr "Usage: tome-replace [-i <input>] [-o <output>]"
