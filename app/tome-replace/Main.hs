@@ -6,38 +6,39 @@ import Data.Monoid
 import qualified Data.Map as Map
 import Parser
 import System.Environment (getArgs)
+import System.Exit (exitWith, ExitCode(..))
 import System.IO (Handle, IOMode (ReadMode, WriteMode), hGetContents, hPutStr, hPutStrLn, openFile, stderr, stdin, stdout)
 import System.Random (randomRIO)
 
 data Expr = ExprNum Int | ExprString String | ExprFunc (String, [Expr]) | ExprBool Bool
   deriving (Show)
 
-type Func = [Expr] -> IO (Maybe Expr)
+type Func = [Expr] -> IO (Either String Expr)
 
 -- provided functions
 
 add :: Func
-add [ExprNum a, ExprNum b] = return $ Just (ExprNum (a + b))
-add _ = return Nothing
+add [ExprNum a, ExprNum b] = return $ Right (ExprNum (a + b))
+add _ = return $ Left "invalid arguments, usage: (+ Int Int)"
 
 roll :: Func
 roll [ExprNum sides, ExprNum modifier] = do
   result <- randomRIO (1, sides)
-  return $ Just (ExprNum (result + modifier))
+  return $ Right (ExprNum (result + modifier))
 roll [ExprNum sides] = roll [ExprNum sides, ExprNum 0]
-roll _ = return Nothing
+roll _ = return $ Left "invalid arguments, usage: (roll Int [Int])"
 
 lessThan :: Func
-lessThan [ExprNum left, ExprNum right] = return $ Just $ ExprBool (left < right)
-lessThan _ = return Nothing
+lessThan [ExprNum left, ExprNum right] = return $ Right $ ExprBool (left < right)
+lessThan _ = return $ Left "invalid arguments, usage: (< Int Int)"
 
 greaterThan :: Func
-greaterThan [ExprNum left, ExprNum right] = return $ Just $ ExprBool (left > right)
-greaterThan _ = return Nothing
+greaterThan [ExprNum left, ExprNum right] = return $ Right $ ExprBool (left > right)
+greaterThan _ = return $ Left "invalid arguments, usage: (> Int Int)"
 
 ifFunc :: Func
-ifFunc [ExprBool value, left, right] = return $ Just $ if value then left else right
-ifFunc _ = return Nothing
+ifFunc [ExprBool value, left, right] = return $ Right $ if value then left else right
+ifFunc _ = return $ Left "invalid arguments, usage: (if Bool Expr Expr)"
 
 funcMap :: Map.Map String Func
 funcMap =
@@ -80,34 +81,41 @@ wrappedExprP = charP '{' *> ws *> exprP <* ws <* charP '}'
 
 -- expression handling
 
-evaluate :: Expr -> IO (Maybe Expr)
+evaluate :: Expr -> IO (Either String Expr)
 evaluate (ExprFunc (name, args)) = case Map.lookup name funcMap of
   Just func -> do
     evaluated <- mapM evaluate args
     case sequence evaluated of
-      Just exprs -> func exprs
-      Nothing -> return Nothing
-  Nothing -> return Nothing
-evaluate x = return $ Just x
+      Left err -> return $ Left err
+      Right exprs -> func exprs
+  Nothing -> return $ Left $ "no built-in function named '" ++ name ++ "'"
+evaluate x = return $ Right x
 
-toString :: Expr -> IO String
-toString (ExprNum x) = return $ show x
-toString (ExprString str) = return str
-toString (ExprBool value) = return $ if value then "true" else "false"
+toString :: Expr -> IO (Either String String)
+toString (ExprNum x) = return $ Right $ show x
+toString (ExprString str) = return $ Right str
+toString (ExprBool value) = return $ Right $ if value then "true" else "false"
 toString expr = do
   result <- evaluate expr
   case result of
-    Just value -> toString value
-    Nothing -> return "{failed to parse}"
+    Left err -> return $ Left err
+    Right expr' -> toString expr'
 
-replaceExprs :: String -> String -> IO String
-replaceExprs str accum = case runParser wrappedExprP str of
-  Just (rest, expr) -> do
-    evaluated <- toString expr
-    replaceExprs rest (accum ++ evaluated)
-  Nothing -> case str of
-    (x : xs) -> replaceExprs xs (accum ++ [x])
-    [] -> return accum
+replaceExprs :: String -> String -> IO (Either String String)
+replaceExprs ('{':rest) accum = case runParser wrappedExprP ('{':rest) of
+  Just("", expr) -> do
+    result <- toString expr  
+    case result of 
+      Left err -> return $ Left err
+      Right str -> return $ Right $ accum ++ str
+  Just(rest', expr) -> do
+    result <- toString expr
+    case result of 
+      Left err -> return $ Left err
+      Right str -> replaceExprs rest' (accum ++ str)
+  Nothing -> return $ Left "failed to parse"
+replaceExprs (x:xs) accum = replaceExprs xs (accum ++ [x])
+replaceExprs [] accum = return $ Right accum
 
 -- command line processing
 
@@ -142,6 +150,11 @@ main = do
     Just opts -> do
       contents <- hGetContents (optInput opts)
       result <- replaceExprs contents ""
-      hPutStr (optOutput opts) result
+      case result of 
+        Left err -> do 
+          hPutStrLn stderr err
+          exitWith (ExitFailure 1)
+        Right str -> hPutStr (optOutput opts) str
     Nothing -> do
       hPutStrLn stderr "Usage: tome-replace [-i <input>] [-o <output>]"
+      exitWith (ExitFailure 1)
