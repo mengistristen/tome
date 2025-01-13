@@ -2,13 +2,17 @@ module Main where
 
 import Control.Applicative
 import Data.Char
-import Data.Monoid
 import qualified Data.Map as Map
+import Data.Monoid
+import Data.Yaml (ParseException, decodeFileEither)
 import Parser
+import System.Directory (doesFileExist, getCurrentDirectory)
 import System.Environment (getArgs)
-import System.Exit (exitWith, ExitCode(..))
+import System.Exit (ExitCode (..), exitWith)
+import System.FilePath ((</>))
 import System.IO (Handle, IOMode (ReadMode, WriteMode), hGetContents, hPutStr, hPutStrLn, openFile, stderr, stdin, stdout)
 import System.Random (randomRIO)
+import Table
 
 data Expr = ExprNum Int | ExprString String | ExprFunc (String, [Expr]) | ExprBool Bool
   deriving (Show)
@@ -40,6 +44,24 @@ ifFunc :: Func
 ifFunc [ExprBool value, left, right] = return $ Right $ if value then left else right
 ifFunc _ = return $ Left "invalid arguments, usage: (if Bool Expr Expr)"
 
+tableFunc :: Func
+tableFunc [ExprString name] = do
+  cwd <- getCurrentDirectory
+  let tablePath = cwd </> ".tome" </> "tables" </> name ++ ".yaml"
+  exists <- doesFileExist tablePath
+  if exists
+    then do
+      result <- decodeFileEither tablePath :: IO (Either ParseException Table)
+      case result of
+        Left err -> return $ Left $ "error parsing YAML: " ++ show err
+        Right table -> do
+          outcomeResult <- findOutcome table
+          case outcomeResult of
+            Just o -> return $ Right $ ExprString o
+            Nothing -> return $ Left "asdf"
+    else return $ Left "failed to locate table"
+tableFunc _ = return $ Left "invalid arguments, usage: (table String)"
+
 funcMap :: Map.Map String Func
 funcMap =
   Map.fromList
@@ -47,7 +69,8 @@ funcMap =
       ("<", lessThan),
       (">", greaterThan),
       ("if", ifFunc),
-      ("roll", roll)
+      ("roll", roll),
+      ("table", tableFunc)
     ]
 
 -- parser
@@ -102,19 +125,19 @@ toString expr = do
     Right expr' -> toString expr'
 
 replaceExprs :: String -> String -> IO (Either String String)
-replaceExprs ('{':rest) accum = case runParser wrappedExprP ('{':rest) of
-  Just("", expr) -> do
-    result <- toString expr  
-    case result of 
+replaceExprs ('{' : rest) accum = case runParser wrappedExprP ('{' : rest) of
+  Just ("", expr) -> do
+    result <- toString expr
+    case result of
       Left err -> return $ Left err
       Right str -> return $ Right $ accum ++ str
-  Just(rest', expr) -> do
+  Just (rest', expr) -> do
     result <- toString expr
-    case result of 
+    case result of
       Left err -> return $ Left err
       Right str -> replaceExprs rest' (accum ++ str)
   Nothing -> return $ Left "failed to parse"
-replaceExprs (x:xs) accum = replaceExprs xs (accum ++ [x])
+replaceExprs (x : xs) accum = replaceExprs xs (accum ++ [x])
 replaceExprs [] accum = return $ Right accum
 
 -- command line processing
@@ -150,8 +173,8 @@ main = do
     Just opts -> do
       contents <- hGetContents (optInput opts)
       result <- replaceExprs contents ""
-      case result of 
-        Left err -> do 
+      case result of
+        Left err -> do
           hPutStrLn stderr err
           exitWith (ExitFailure 1)
         Right str -> hPutStr (optOutput opts) str
