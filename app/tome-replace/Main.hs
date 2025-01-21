@@ -90,11 +90,7 @@ exprFuncP = charP '(' *> inner <* charP ')'
     inner = (\name _ args -> ExprFunc (name, args)) <$> spanP isValid <*> ws <*> sepBy ws exprP
 
 exprBoolP :: Parser Expr
-exprBoolP = f <$> (stringP "true" <|> stringP "false")
-  where
-    f "true" = ExprBool True
-    f "false" = ExprBool False
-    f _ = undefined
+exprBoolP = (ExprBool True <$ stringP "true") <|> (ExprBool False <$ stringP "false")
 
 exprP :: Parser Expr
 exprP = exprNumP <|> exprStringP <|> exprFuncP <|> exprBoolP
@@ -104,7 +100,7 @@ wrappedExprP = charP '{' *> ws *> exprP <* ws <* charP '}'
 
 -- expression handling
 
-evaluate :: Expr -> IO (Either String Expr)
+evaluate :: Expr -> IO (Either String Expr) 
 evaluate (ExprFunc (name, args)) = case Map.lookup name funcMap of
   Just func -> do
     evaluated <- mapM evaluate args
