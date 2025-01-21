@@ -58,7 +58,7 @@ tableFunc [ExprString name] = do
           outcomeResult <- findOutcome table
           case outcomeResult of
             Just o -> return $ Right $ ExprString o
-            Nothing -> return $ Left "asdf"
+            Nothing -> return $ Left "failed to find outcome"
     else return $ Left "failed to locate table"
 tableFunc _ = return $ Left "invalid arguments, usage: (table String)"
 
